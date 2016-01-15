@@ -248,7 +248,6 @@ func NewLazyHostTargeter(src io.Reader, host string, body []byte, hdr http.Heade
 		}
 		parsedURL.Host = host
 		tgt.URL = parsedURL.String()
-		fmt.Println("Target URL: %s", tgt.URL)
 		line = strings.TrimSpace(sc.Peek())
 		if line == "" || startsWithHTTPMethod(line) {
 			return nil
