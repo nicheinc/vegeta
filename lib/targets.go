@@ -90,6 +90,35 @@ func NewEagerTargeter(src io.Reader, body []byte, header http.Header) (Targeter,
 	return NewStaticTargeter(tgts...), nil
 }
 
+// NewEagerHostTargeter eagerly reads all Targets out of the provided io.Reader and
+// returns a NewStaticTargeter with them. Uses the provided host:port as the target
+// host:port (hence, target files used with this targeter should not specify the
+// host:port portion of the URLs to target).
+//
+// host will be used as the Target's host:port (i.e. it will be prefixed onto each target URL)
+// body will be set as the Target's body if no body is provided.
+// hdr will be merged with the each Target's headers.
+func NewEagerHostTargeter(src io.Reader, host string, body []byte, header http.Header) (Targeter, error) {
+	var (
+		sc   = NewLazyHostTargeter(src, host, body, header)
+		tgts []Target
+		tgt  Target
+		err  error
+	)
+	for {
+		if err = sc(&tgt); err == ErrNoTargets {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		tgts = append(tgts, tgt)
+	}
+	if len(tgts) == 0 {
+		return nil, ErrNoTargets
+	}
+	return NewStaticTargeter(tgts...), nil
+}
+
 // NewLazyTargeter returns a new Targeter that lazily scans Targets from the
 // provided io.Reader on every invocation.
 //
@@ -137,6 +166,90 @@ func NewLazyTargeter(src io.Reader, body []byte, hdr http.Header) Targeter {
 			return fmt.Errorf("bad URL: %s", tokens[1])
 		}
 		tgt.URL = tokens[1]
+		line = strings.TrimSpace(sc.Peek())
+		if line == "" || startsWithHTTPMethod(line) {
+			return nil
+		}
+		for sc.Scan() {
+			if line = strings.TrimSpace(sc.Text()); line == "" {
+				break
+			} else if strings.HasPrefix(line, "@") {
+				if tgt.Body, err = ioutil.ReadFile(line[1:]); err != nil {
+					return fmt.Errorf("bad body: %s", err)
+				}
+				break
+			}
+			tokens = strings.SplitN(line, ":", 2)
+			if len(tokens) < 2 {
+				return fmt.Errorf("bad header: %s", line)
+			}
+			for i := range tokens {
+				if tokens[i] = strings.TrimSpace(tokens[i]); tokens[i] == "" {
+					return fmt.Errorf("bad header: %s", line)
+				}
+			}
+			tgt.Header.Add(tokens[0], tokens[1])
+		}
+		if err = sc.Err(); err != nil {
+			return ErrNoTargets
+		}
+		return nil
+	}
+}
+
+// NewLazyHostTargeter returns a new Targeter that lazily scans Targets from
+// the provided io.Reader on every invocation. Uses the provided host:port as
+// the target host:port (hence, target files used with this targeter should
+// not specify the host:port portion of the URLs to target).
+//
+// host will be used as the Target's host:port (i.e. it will be prefixed onto each target URL)
+// body will be set as the Target's body if no body is provided.
+// hdr will be merged with the each Target's headers.
+func NewLazyHostTargeter(src io.Reader, host string, body []byte, hdr http.Header) Targeter {
+	var mu sync.Mutex
+	sc := peekingScanner{src: bufio.NewScanner(src)}
+	return func(tgt *Target) (err error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if tgt == nil {
+			return ErrNilTarget
+		}
+
+		var line string
+		for {
+			if !sc.Scan() {
+				return ErrNoTargets
+			}
+			line = strings.TrimSpace(sc.Text())
+			if len(line) != 0 {
+				break
+			}
+		}
+
+		tgt.Body = body
+		tgt.Header = http.Header{}
+		for k, vs := range hdr {
+			tgt.Header[k] = vs
+		}
+
+		tokens := strings.SplitN(line, " ", 2)
+		if len(tokens) < 2 {
+			return fmt.Errorf("bad target: %s", line)
+		}
+		switch tokens[0] {
+		case "HEAD", "GET", "PUT", "POST", "PATCH", "OPTIONS", "DELETE":
+			tgt.Method = tokens[0]
+		default:
+			return fmt.Errorf("bad method: %s", tokens[0])
+		}
+		parsedURL, err := url.ParseRequestURI(tokens[1])
+		if err != nil {
+			return fmt.Errorf("bad URL: %s", tokens[1])
+		}
+		parsedURL.Host = host
+		tgt.URL = parsedURL.String()
+		fmt.Println("Target URL: %s", tgt.URL)
 		line = strings.TrimSpace(sc.Peek())
 		if line == "" || startsWithHTTPMethod(line) {
 			return nil
