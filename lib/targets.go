@@ -92,10 +92,9 @@ func NewEagerTargeter(src io.Reader, body []byte, header http.Header) (Targeter,
 
 // NewEagerHostTargeter eagerly reads all Targets out of the provided io.Reader and
 // returns a NewStaticTargeter with them. Uses the provided host:port as the target
-// host:port (hence, target files used with this targeter should not specify the
-// host:port portion of the URLs to target).
+// host:port, overriding/replacing the host:port of each URL in the target file.
 //
-// host will be used as the Target's host:port (i.e. it will be prefixed onto each target URL)
+// host will be used as the Target's host:port (i.e. it will replace the host:port in each target URL)
 // body will be set as the Target's body if no body is provided.
 // hdr will be merged with the each Target's headers.
 func NewEagerHostTargeter(src io.Reader, host string, body []byte, header http.Header) (Targeter, error) {
@@ -199,10 +198,10 @@ func NewLazyTargeter(src io.Reader, body []byte, hdr http.Header) Targeter {
 
 // NewLazyHostTargeter returns a new Targeter that lazily scans Targets from
 // the provided io.Reader on every invocation. Uses the provided host:port as
-// the target host:port (hence, target files used with this targeter should
-// not specify the host:port portion of the URLs to target).
+// the target host:port, overriding/replacing the host:port of each URL in the
+// target file.
 //
-// host will be used as the Target's host:port (i.e. it will be prefixed onto each target URL)
+// host will be used as the Target's host:port (i.e. it will replace the host:port in each target URL)
 // body will be set as the Target's body if no body is provided.
 // hdr will be merged with the each Target's headers.
 func NewLazyHostTargeter(src io.Reader, host string, body []byte, hdr http.Header) Targeter {
